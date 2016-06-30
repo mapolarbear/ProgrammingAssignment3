@@ -19,7 +19,7 @@ best <- function (state, outcome){
   if(missing(outcome) | !is.element(outcome,outcome_list))
     stop("invalid outcome")
   
-  ## 3. Main loop - read, validate and extract data
+  ## 3. Main loop - read, validate and extract/subset data
   temp_ds <- read.csv("week4/outcome-of-care-measures.csv", colClasses="character")
   for (i in 1:nrow(oframe)){
     if(oframe$outcome[i] == outcome) {
