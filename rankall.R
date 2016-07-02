@@ -61,7 +61,7 @@ rankall <- function (outcome, num="best"){
       if(is.numeric(num)) ix <- as.numeric(num)
       
       h_value <- as.character(ext_ds_srtd[ix, "Hospital.Name"])
-      s_value <- as.character(ext_ds_srtd[ix, "State"]) 
+      
       out_dframe <- rbind(out_dframe, data.frame(hospital=h_value, state=st_list[i]))
   } ## end of state loop
   out_dframe
