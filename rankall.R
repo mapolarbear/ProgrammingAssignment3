@@ -48,8 +48,8 @@ rankall <- function (outcome, num="best"){
       
       ## sort data frame by outcome & Hospital.Name
       ext_ds_srtd <- ext_ds[order(as.numeric(ext_ds[["outcome"]])
-                                  ,ext_ds[["Hospital.Name"]]
-                                  ,decreasing=FALSE,na.last=NA)
+                                            ,ext_ds[["Hospital.Name"]]
+                                            ,decreasing=FALSE,na.last=NA)
                             , ]
       ## add sequence number to rows (new RANK column created)
       ext_ds_srtd$rank <- seq.int(nrow(ext_ds_srtd))
