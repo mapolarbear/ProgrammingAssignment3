@@ -35,7 +35,7 @@ rankall <- function (outcome, num="best"){
     }
   }
  
-  ## 3. Main loop - match, validate and extract/subset data 
+  ## 3. Main loop - match, validate and extract/subset State data 
   
   ## match state, subset state data, sort, pick up by rank
   ## add row to out_dframe
