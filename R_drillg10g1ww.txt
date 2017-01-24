@@ -1,0 +1,1580 @@
+install.packages("sqldf")
+library(sqldf)
+#install.packages("xlsReadWrite")
+#library(xlsReadWrite)
+#library(foreign)
+##################################################
+
+# crate R files first
+data_centers          <- read.table("files/data_centers.csv", header=T, sep=",")
+valid_status          <- read.table("files/valid_status.csv", header=T, sep=",")
+Source_Tags           <- read.csv("files/Source_Tags.csv", header=T, sep=",", 
+                                  colClasses=c("character","character"))
+
+# read CO/CC reference files
+network_cocc <- read.csv("files/network_cocc.csv", header=T, sep=",")
+mf_cocc      <- read.csv("files/mf_cocc.csv", header=T, sep=",")
+stor_cocc    <- read.csv("files/stor_cocc.csv", header=T, sep=",")
+ecio_cocc    <- read.csv("files/ecio_cocc.csv", header=T, sep=",")
+rg_cocc      <- read.csv("files/rg_cocc.csv", header=T, sep=",")
+mrg_cocc     <- read.csv("files/mrg_cocc.txt", header=T, sep="\t",
+                         colClasses=c("character","character"))  #must be in TXT/TAB format
+
+# read 1G/10G data fu=iles -  must be in TXT/TAB Delimited format
+ports_10G_plus2 <- read.csv("10G_Ports_04_2014_plus2.txt", header=T, sep="\t", 
+                            colClasses=c("character","character"))
+
+ports_1G_plus2  <- read.csv("1G_Ports_04_2014_plus2.txt", header=T, sep="\t",
+                            colClasses=c("character","character"))
+
+# create combined COCC in '00000 / 0000000' format
+
+ports_10G_plus2$cocc_f1 <- paste(ports_10G_plus2$Company_Code_5, '/', 
+                                 ports_10G_plus2$Cost_Center_7)
+ports_10G_plus2$cocc_f2 <- paste(ports_10G_plus2$Company_Code, '/', 
+                                 ports_10G_plus2$Cost_Center_7)
+
+ports_1G_plus2$cocc_f1  <- paste(ports_1G_plus2$Company_Code_5,  '/', 
+                                 ports_1G_plus2$Cost_center_7)
+ports_1G_plus2$cocc_f2  <- paste(ports_1G_plus2$Company_Code,  '/', 
+                                 ports_1G_plus2$Cost_center_7)
+
+# step 1 extract records with USED/ACTIVE and USED - Do NOT DISABLE
+# step 2 - create pivot tables
+ports_10G_status_used  <- sqldf("select  a.*
+                                  from ports_10G_plus2     a
+                                ,valid_status  b
+                                where  a.Status = b.status
+                                ")
+ports_1G_status_used   <- sqldf("select  a.*
+                                  from ports_1G_plus2      a
+                                ,valid_status  b
+                                where  a.Status = b.status
+                                ")
+
+# step 2 thru 5 - create pivot tables with common formats 
+# create 10G pivot
+ports_10G_ADA_pvt  <- sqldf(" select  a.Country
+                                      ,a.Company_Code_5
+                            ,a.Cost_Center_7
+                            ,a.Company_Code
+                            ,a.Cost_Center
+                            ,a.cocc_f1
+                            ,a.cocc_f2
+                            ,count(*) as Ports
+                            from ports_10G_status_used     a
+                            ,data_centers  b
+                            where  a.Bank_Blc = b.DataCenters_BLC
+                            group by  
+                            a.Country
+                            ,a.Company_Code_5
+                            ,a.Cost_Center_7
+                            ,a.Company_Code
+                            ,a.Cost_Center
+                            ,a.cocc_f1
+                            ,a.cocc_f2
+                            order by a.Country
+                            ")
+# create 1G pivot
+ports_1G_ADA_pvt   <- sqldf(" select  a.Country
+                                      ,a.Company_Code_5
+                            ,a.Cost_Center_7
+                            ,a.Company_Code
+                            ,a.Cost_Center
+                            ,a.cocc_f1
+                            ,a.cocc_f2
+                            ,count(*) as Ports
+                            from ports_1G_status_used     a
+                            ,data_centers  b
+                            where  a.Bank_Blc = b.DataCenters_BLC
+                            group by  
+                            a.Country
+                            ,a.Company_Code_5
+                            ,a.Cost_Center_7
+                            ,a.Company_Code
+                            ,a.Cost_Center
+                            ,a.cocc_f1
+                            ,a.cocc_f2
+                            order by a.Country
+                            ")
+
+# step 6a -  Network CO/CC look up
+ports_10G_nwk  <- sqldf(" select  a.*
+                                 ,b.co_cc as Network_Check
+                        from ports_10G_ADA_pvt     a
+                        left join  
+                        network_cocc  b
+                        on  a.cocc_f2 = b.co_cc
+                        ")
+ports_1G_nwk  <- sqldf(" select  a.*
+                                 ,b.co_cc as Network_Check
+                       from ports_1G_ADA_pvt     a
+                       left join  
+                       network_cocc  b
+                       on  a.cocc_f2 = b.co_cc
+                       ")
+
+# step 6b -  Midrange CO/CC look up
+mrg_cocc$co_cc  <- paste(mrg_cocc$Company_Code,  '/', mrg_cocc$Cost_Center)
+
+ports_10G_nwk_mr  <- sqldf(" select  a.*
+                                    ,b.co_cc as Midrange_Check
+                           from ports_10G_nwk     a
+                           left join  
+                           mrg_cocc  b
+                           on  a.cocc_f2 = b.co_cc
+                           ")
+ports_1G_nwk_mr  <- sqldf(" select  a.*
+                                 ,b.co_cc as Midrange_Check
+                          from ports_1G_nwk     a
+                          left join  
+                          mrg_cocc  b
+                          on  a.cocc_f2 = b.co_cc
+                          ")
+
+# step 6c -  Mainframe CO/CC look up
+ports_10G_nwk_mr_mf  <- sqldf(" select  a.*
+                                 ,b.co_cc as Mainframe_Check
+                              from ports_10G_nwk_mr     a
+                              left join  
+                              mf_cocc  b
+                              on  a.cocc_f2 = b.co_cc
+                              ")
+ports_1G_nwk_mr_mf  <- sqldf(" select  a.*
+                                 ,b.co_cc as Mainframe_Check
+                             from ports_1G_nwk_mr     a
+                             left join  
+                             mf_cocc  b
+                             on  a.cocc_f2 = b.co_cc
+                             ")
+
+# step 6d -  Storage CO/CC look up
+ports_10G_nwk_mr_mf_stor  <- sqldf(" select  a.*
+                                 ,b.co_cc as Storage_Check
+                                   from ports_10G_nwk_mr_mf     a
+                                   left join  
+                                   stor_cocc  b
+                                   on  a.cocc_f2 = b.co_cc
+                                   ")
+ports_1G_nwk_mr_mf_stor  <- sqldf(" select  a.*
+                                 ,b.co_cc as Storage_Check
+                                  from ports_1G_nwk_mr_mf     a
+                                  left join  
+                                  stor_cocc  b
+                                  on  a.cocc_f2 = b.co_cc
+                                  ")
+
+# step 6e -  ECIO CO/CC look up
+ports_10G_nwk_mr_mf_stor_ECIO  <- sqldf(" select  a.*
+                                 ,b.co_cc as ECIO_Check
+                                        from ports_10G_nwk_mr_mf_stor     a
+                                        left join  
+                                        ecio_cocc  b
+                                        on  a.cocc_f2 = b.co_cc
+                                        ")
+ports_1G_nwk_mr_mf_stor_ECIO  <- sqldf(" select  a.*
+                                 ,b.co_cc as ECIO_Check
+                                       from ports_1G_nwk_mr_mf_stor     a
+                                       left join  
+                                       ecio_cocc  b
+                                       on  a.cocc_f2 = b.co_cc
+                                       ")
+
+# step 6f -  RG CO/CC look up
+ports_10G_nwk_mr_mf_stor_ECIO_rg  <- sqldf(" select  a.*
+                                 ,b.co_cc as GMRT_Check
+                                           from ports_10G_nwk_mr_mf_stor_ECIO     a
+                                           left join  
+                                           rg_cocc  b
+                                           on  a.cocc_f2 = b.co_cc
+                                           ")
+ports_1G_nwk_mr_mf_stor_ECIO_rg  <- sqldf(" select  a.*
+                                 ,b.co_cc as GMRT_Check
+                                          from ports_1G_nwk_mr_mf_stor_ECIO     a
+                                          left join  
+                                          rg_cocc  b
+                                          on  a.cocc_f2 = b.co_cc
+                                          ")
+
+# save/write itermidiate file 
+write.csv(ports_10G_nwk_mr_mf_stor_ECIO_rg,"ports_10G_all_sum.csv")
+write.csv(ports_1G_nwk_mr_mf_stor_ECIO_rg,"ports_1G_all_sum.csv")
+
+# read 1G and 10G files for process
+p10G_all_sum <- read.csv("ports_10G_all_sum.csv", header=T, sep=",", 
+                         colClasses=c("character","character"))
+
+p1G_all_sum <- read.csv("ports_1G_all_sum.csv", header=T, sep=",", 
+                        colClasses=c("character","character"))
+
+# add ORIGINAL PORT OWNER column
+cocc_mf_store_eico_all <- rbind(mf_cocc, stor_cocc, ecio_cocc)
+cocc_mf_store_eico_rg_all <- rbind(mf_cocc, stor_cocc, ecio_cocc, rg_cocc, network_cocc)
+
+p10G_all_sum_1 <- sqldf("select a.* 
+                               ,b.orig_owner as Original_Port_Owner
+                        ,b.orig_owner as New_Port_Owner
+                        from p10G_all_sum           a
+                        left join 
+                        cocc_mf_store_eico_rg_all   b
+                        on a.cocc_f2 = b.co_cc
+                        ")
+
+p1G_all_sum_1 <- sqldf("select a.* 
+                               ,b.orig_owner as Original_Port_Owner
+                       ,b.orig_owner as New_Port_Owner
+                       from p1G_all_sum           a
+                       left join
+                       cocc_mf_store_eico_rg_all  b
+                       on a.cocc_f2 = b.co_cc
+                       ")
+
+# add SOURCE_TAG, PORT_TYPE
+p10G_all_sum_1$Port_Type <- paste("10G")
+p1G_all_sum_1$Port_Type <- paste("1G")
+
+p10G_all_sum_2 <- sqldf("select a.* 
+                                ,b.source_tag as Source_Tag
+                        from  p10G_all_sum_1      a
+                        left join
+                        Source_Tags     b
+                        on a.Port_Type = b.port_type
+                        where a.Country   = b.country
+                        
+                        ")
+p1G_all_sum_2 <- sqldf("select a.* 
+                                ,b.source_tag as Source_Tag
+                       from  p1G_all_sum_1      a
+                       left join
+                       Source_Tags     b
+                       on a.Port_Type = b.port_type
+                       where a.Country   = b.country
+                       
+                       ")
+write.csv(p1G_all_sum_1, "p1G_all_sum_1a.csv")
+write.csv(p10G_all_sum_1, "p10G_all_sum_1a.csv")
+write.csv(p1G_all_sum_2, "p1G_all_sum_2a.csv")
+write.csv(p10G_all_sum_2, "p10G_all_sum_2a.csv")
+
+#####
+##### NETWORK UPDATES
+#####
+# updating 10G CO/CC network values for midrange  
+p10G_all_sum_2[is.na(p10G_all_sum_2)] <- ' '
+
+ix_1 <- nrow(p10G_all_sum_2)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if((p10G_all_sum_2$Network_Check[i] > ' ') & (p10G_all_sum_2$Country[i] == 'HONG KONG')) 
+  {p10G_all_sum_2$Company_Code[i]    <- 03209
+   p10G_all_sum_2$Cost_Center[i]     <- 9867616
+   p10G_all_sum_2$Network_Check[i]   <- 'NA'
+   p10G_all_sum_2$Midrange_Check[i]  <- paste(p10G_all_sum_2$Company_Code[i], '/', 
+                                              p10G_all_sum_2$Cost_Center[i])
+   p10G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  if((p10G_all_sum_2$Network_Check[i] > ' ') & (p10G_all_sum_2$Country[i] == 'JAPAN')) 
+  {p10G_all_sum_2$Company_Code[i]    <- 03209
+   p10G_all_sum_2$Cost_Center[i]     <- 9867616
+   p10G_all_sum_2$Network_Check[i]   <- 'NA'
+   p10G_all_sum_2$Midrange_Check[i]  <- paste(p10G_all_sum_2$Company_Code[i], '/', 
+                                              p10G_all_sum_2$Cost_Center[i])
+   p10G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  if((p10G_all_sum_2$Network_Check[i] > ' ') & (p10G_all_sum_2$Country[i] == 'SINGAPORE')) 
+  {p10G_all_sum_2$Company_Code[i]    <- 03209
+   p10G_all_sum_2$Cost_Center[i]     <- 9867616
+   p10G_all_sum_2$Network_Check[i]   <- 'NA'
+   p10G_all_sum_2$Midrange_Check[i]  <- paste(p10G_all_sum_2$Company_Code[i], '/', 
+                                              p10G_all_sum_2$Cost_Center[i])
+   p10G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  } 
+  if((p10G_all_sum_2$Network_Check[i] > ' ') & (p10G_all_sum_2$Country[i] == 'UNITED KINGDOM')) 
+  {p10G_all_sum_2$Company_Code[i]    <- 03279
+   p10G_all_sum_2$Cost_Center[i]     <- 9921557
+   p10G_all_sum_2$Network_Check[i]   <- 'NA'
+   p10G_all_sum_2$Midrange_Check[i]  <- paste(p10G_all_sum_2$Company_Code[i], '/', 
+                                              p10G_all_sum_2$Cost_Center[i])
+   p10G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  if((p10G_all_sum_2$Network_Check[i] > ' ') & (p10G_all_sum_2$Country[i] == 'UNITED STATES')) 
+  {p10G_all_sum_2$Company_Code[i]    <- 00110
+   p10G_all_sum_2$Cost_Center[i]     <- 1001143
+   p10G_all_sum_2$Network_Check[i]   <- 'NA'
+   p10G_all_sum_2$Midrange_Check[i]  <- paste(p10G_all_sum_2$Company_Code[i], '/', 
+                                              p10G_all_sum_2$Cost_Center[i])
+   p10G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  i <- i+1
+}
+
+#####
+#####
+# updating 1G CO/CC network values for midrange  
+p1G_all_sum_2[is.na(p1G_all_sum_2)] <- ' '
+
+ix_1 <- nrow(p1G_all_sum_2)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if((p1G_all_sum_2$Network_Check[i] > ' ') & (p1G_all_sum_2$Country[i] == 'HONG KONG')) 
+  {p1G_all_sum_2$Company_Code[i]    <- 03209
+   p1G_all_sum_2$Cost_Center[i]     <- 9867616
+   p1G_all_sum_2$Network_Check[i]   <- 'NA'
+   p1G_all_sum_2$Midrange_Check[i]  <- paste(p1G_all_sum_2$Company_Code[i], '/', 
+                                             p1G_all_sum_2$Cost_Center[i])
+   p1G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  if((p1G_all_sum_2$Network_Check[i] > ' ') & (p1G_all_sum_2$Country[i] == 'JAPAN')) 
+  {p1G_all_sum_2$Company_Code[i]    <- 03209
+   p1G_all_sum_2$Cost_Center[i]     <- 9867616
+   p1G_all_sum_2$Network_Check[i]   <- 'NA'
+   p1G_all_sum_2$Midrange_Check[i]  <- paste(p1G_all_sum_2$Company_Code[i], '/', 
+                                             p1G_all_sum_2$Cost_Center[i])
+   p1G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  if((p1G_all_sum_2$Network_Check[i] > ' ') & (p1G_all_sum_2$Country[i] == 'SINGAPORE')) 
+  {p1G_all_sum_2$Company_Code[i]    <- 03209
+   p1G_all_sum_2$Cost_Center[i]     <- 9867616
+   p1G_all_sum_2$Network_Check[i]   <- 'NA'
+   p1G_all_sum_2$Midrange_Check[i]  <- paste(p1G_all_sum_2$Company_Code[i], '/', 
+                                             p1G_all_sum_2$Cost_Center[i])
+   p1G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  } 
+  if((p1G_all_sum_2$Network_Check[i] > ' ') & (p1G_all_sum_2$Country[i] == 'UNITED KINGDOM')) 
+  {p1G_all_sum_2$Company_Code[i]    <- 07650
+   p1G_all_sum_2$Cost_Center[i]     <- 0017833
+   p1G_all_sum_2$Network_Check[i]   <- 'NA'
+   p1G_all_sum_2$Midrange_Check[i]  <- paste(p1G_all_sum_2$Company_Code[i], '/', 
+                                             p1G_all_sum_2$Cost_Center[i])
+   p1G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  if((p1G_all_sum_2$Network_Check[i] > ' ') & (p1G_all_sum_2$Country[i] == 'UNITED STATES')) 
+  {p1G_all_sum_2$Company_Code[i]    <- 00110
+   p1G_all_sum_2$Cost_Center[i]     <- 0013303
+   p1G_all_sum_2$Network_Check[i]   <- 'NA'
+   p1G_all_sum_2$Midrange_Check[i]  <- paste(p1G_all_sum_2$Company_Code[i], '/', 
+                                             p1G_all_sum_2$Cost_Center[i])
+   p1G_all_sum_2$New_Port_Owner[i]  <- 'Midrange'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  i <- i+1
+}
+
+#####
+##### MIDRANGE/MIDRANGE ports ASSIGNMENT
+#####
+# updating 10G CO/CC unassigned values to MIDRANGE/MIDRANGE
+p10G_all_sum_2[is.na(p10G_all_sum_2)] <- ' '
+
+ix_1 <- nrow(p10G_all_sum_2)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if((p10G_all_sum_2$Midrange_Check[i] != ' ') 
+     &(p10G_all_sum_2$Original_Port_Owner[i] == ' ')
+     &(p10G_all_sum_2$New_Port_Owner[i]      == ' ')) 
+  {p10G_all_sum_2$Original_Port_Owner[i]    <- 'Midrange'
+   p10G_all_sum_2$New_Port_Owner[i]         <- 'Midrange'
+  }
+  i <- i+1
+}
+# updating 1G CO/CC unassigned values to MIDRANGE/MIDRANGE
+p1G_all_sum_2[is.na(p1G_all_sum_2)] <- ' '
+
+ix_1 <- nrow(p1G_all_sum_2)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if((p1G_all_sum_2$Midrange_Check[i] != ' ') 
+     &(p1G_all_sum_2$Original_Port_Owner[i] == ' ')
+     &(p1G_all_sum_2$New_Port_Owner[i]      == ' ')) 
+  {p1G_all_sum_2$Original_Port_Owner[i]    <- 'Midrange'
+   p1G_all_sum_2$New_Port_Owner[i]         <- 'Midrange'
+  }
+  i <- i+1
+}
+write.csv(p1G_all_sum_2, "p1G_all_sum_2b.csv")
+write.csv(p10G_all_sum_2, "p10G_all_sum_2b.csv")
+
+
+#####
+##### OTHER ports ASSIGNMENT
+#####
+# updating 10G CO/CC unassigned values for OTHER  
+p10G_all_sum_2[is.na(p10G_all_sum_2)] <- ' '
+
+ix_1 <- nrow(p10G_all_sum_2)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if(p10G_all_sum_2$Original_Port_Owner[i] == ' ') 
+  {p10G_all_sum_2$Original_Port_Owner[i]    <- 'Other'
+   p10G_all_sum_2$New_Port_Owner[i]         <- 'Other'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  i <- i+1
+}  
+
+
+# updating 1G CO/CC unassigned values for OTHER  
+p1G_all_sum_2[is.na(p1G_all_sum_2)] <- ' '
+
+ix_1 <- nrow(p1G_all_sum_2)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if(p1G_all_sum_2$Original_Port_Owner[i] == ' ') 
+  {p1G_all_sum_2$Original_Port_Owner[i]    <- 'Other'
+   p1G_all_sum_2$New_Port_Owner[i]         <- 'Other'
+   #print(x$Company_Code[i])
+   #print(x$Network_Check[i])
+  }
+  i <- i+1
+}
+
+### WRITE files for control check
+write.csv(p10G_all_sum_2,"p10G_all_sum_2.csv")
+write.csv(p1G_all_sum_2,"p1G_all_sum_2.csv")
+
+#############################################
+
+# extract BLANK rows with PORTS
+#p10G_blnk       <- subset(p10G_all_sum_2, Company_Code == '' )
+#p1G_blnk        <- subset(p1G_all_sum_2, Company_Code == '' )
+
+p10G_blnk <- sqldf ("select  * from p10G_all_sum_2
+                      where Company_Code = ''
+                    ")
+p1G_blnk <- sqldf ("select  * from p1G_all_sum_2
+                      where Company_Code = ''
+                   ")
+
+p10G_noblnk <- sqldf ("select  * from p10G_all_sum_2
+                      where Company_Code != ''
+                      ")
+p1G_noblnk <- sqldf ("select  * from p1G_all_sum_2
+                      where Company_Code != ''
+                     ")
+
+# calculating percentages for 10G BLANKs
+p10G_blnk_90   <- p10G_blnk
+ix_1 <- nrow(p10G_blnk_90)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if(p10G_blnk_90$Ports[i] > 0) 
+  {pct_90 <- (as.numeric(p10G_blnk_90$Ports[i]) / 100) * 90
+   pct_90 <- round(pct_90, digits = 0)
+   p10G_blnk_90$Ports[i]    <- pct_90
+   print(p10G_blnk_90$Ports[i])
+   #print(pct_90)
+   #print(x$Network_Check[i])
+   if(p10G_blnk_90$Country[i] == 'HONG KONG') 
+   {p10G_blnk_90$Company_Code[i]    <- 03209
+    p10G_blnk_90$Cost_Center[i]     <- '9867616'
+    p10G_blnk_90$cocc_f1[i]         <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_90$Midrange_Check[i]  <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p10G_blnk_90$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(p10G_blnk_90$Country[i] == 'JAPAN') 
+   {p10G_blnk_90$Company_Code[i]    <- 03209
+    p10G_blnk_90$Cost_Center[i]     <- '9867616'
+    p10G_blnk_90$cocc_f1[i]         <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_90$Midrange_Check[i]  <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p10G_blnk_90$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(p10G_blnk_90$Country[i] == 'SINGAPORE')  
+   {p10G_blnk_90$Company_Code[i]    <- 03209
+    p10G_blnk_90$Cost_Center[i]     <- '9867616'
+    p10G_blnk_90$cocc_f1[i]         <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_90$Midrange_Check[i]  <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p10G_blnk_90$New_Port_Owner[i]       <- 'Midrange'
+   } 
+   if(p10G_blnk_90$Country[i] == 'UNITED KINGDOM') 
+   {p10G_blnk_90$Company_Code[i]    <- 03279
+    p10G_blnk_90$Cost_Center[i]     <- '9921557'
+    p10G_blnk_90$cocc_f1[i]         <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_90$Midrange_Check[i]  <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p10G_blnk_90$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(p10G_blnk_90$Country[i] == 'UNITED STATES') 
+   {p10G_blnk_90$Company_Code[i]    <- 00110
+    p10G_blnk_90$Cost_Center[i]     <- '1001143'
+    p10G_blnk_90$cocc_f1[i]         <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_90$Midrange_Check[i]  <- paste(p10G_blnk_90$Company_Code[i], '/', 
+                                             p10G_blnk_90$Cost_Center[i])
+    p10G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p10G_blnk_90$New_Port_Owner[i]       <- 'Midrange'
+   }
+  }
+  i <- i+1
+}
+p10G_blnk_10   <- p10G_blnk
+ix_1 <- nrow(p10G_blnk_10)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if(p10G_blnk_10$Ports[i] > 0) 
+  {pct_10 <- (as.numeric(p10G_blnk_10$Ports[i]) / 100) * 10
+   pct_10 <- round(pct_10, digits = 0)
+   p10G_blnk_10$Ports[i]    <- pct_10
+   print(p10G_blnk_10$Ports[i])
+   if(p10G_blnk_10$Country[i] == 'HONG KONG') 
+   {p10G_blnk_10$Company_Code[i]    <- 00285
+    p10G_blnk_10$Cost_Center[i]     <- '0021623'
+    p10G_blnk_10$cocc_f1[i]         <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                             p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p10G_blnk_10$New_Port_Owner[i]  <- 'Storage'
+   }
+   if(p10G_blnk_10$Country[i] == 'JAPAN') 
+   {p10G_blnk_10$Company_Code[i]    <- 00285
+    p10G_blnk_10$Cost_Center[i]     <- '0018709'
+    p10G_blnk_10$cocc_f1[i]         <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                             p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$New_Port_Owner[i]  <- 'Storage'
+   }
+   if(p10G_blnk_10$Country[i] == 'SINGAPORE') 
+   {p10G_blnk_10$Company_Code[i]    <- 00285
+    p10G_blnk_10$Cost_Center[i]     <- '0016952'
+    p10G_blnk_10$cocc_f1[i]         <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                             p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$New_Port_Owner[i]  <- 'Storage'
+   } 
+   if(p10G_blnk_10$Country[i] == 'UNITED KINGDOM') 
+   {p10G_blnk_10$Company_Code[i]    <- 03279
+    p10G_blnk_10$Cost_Center[i]     <- '9921564'
+    p10G_blnk_10$cocc_f1[i]         <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                             p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$New_Port_Owner[i]  <- 'Storage'
+   }
+   if(p10G_blnk_10$Country[i] == 'UNITED STATES') 
+   {p10G_blnk_10$Company_Code[i]    <- 00110
+    p10G_blnk_10$Cost_Center[i]     <- '0005996'
+    p10G_blnk_10$cocc_f1[i]         <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                             p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                             '(blank)')
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p10G_blnk_10$Storage_Check[i]  <- paste(p10G_blnk_10$Company_Code[i], '/', 
+                                            p10G_blnk_10$Cost_Center[i])
+    p10G_blnk_10$New_Port_Owner[i]  <- 'Storage'
+   }
+  }
+  i <- i+1
+}
+
+blnk_10G_100 <-rbind(p10G_blnk_90, p10G_blnk_10)
+
+# calculating percentages for 1G BLANKs
+p1G_blnk_90   <- p1G_blnk
+ix_1 <- nrow(p1G_blnk_90)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if(p1G_blnk_90$Ports[i] > 0) 
+  {pct_90 <- (as.numeric(p1G_blnk_90$Ports[i]) / 100) * 90
+   pct_90 <- round(pct_90, digits = 0)
+   p1G_blnk_90$Ports[i]    <- pct_90
+   print(p1G_blnk_90$Ports[i])
+   #print(pct_90)
+   #print(x$Network_Check[i])
+   if(p1G_blnk_90$Country[i] == 'HONG KONG') 
+   {p1G_blnk_90$Company_Code[i]    <- 03209
+    p1G_blnk_90$Cost_Center[i]     <- '9867616'
+    p1G_blnk_90$cocc_f1[i]         <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_90$Midrange_Check[i]  <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p1G_blnk_90$Midrange_Check[i]  <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$New_Port_Owner[i]  <- 'Midrange'
+   }
+   if(p1G_blnk_90$Country[i] == 'JAPAN') 
+   {p1G_blnk_90$Company_Code[i]    <- 03209
+    p1G_blnk_90$Cost_Center[i]     <- '9867616'
+    p1G_blnk_90$cocc_f1[i]         <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_90$Midrange_Check[i]  <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p1G_blnk_90$Midrange_Check[i]  <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$New_Port_Owner[i]  <- 'Midrange'
+   }
+   if(p1G_blnk_90$Country[i] == 'SINGAPORE') 
+   {p1G_blnk_90$Company_Code[i]    <- 03209
+    p1G_blnk_90$Cost_Center[i]     <- '9867616'
+    p1G_blnk_90$cocc_f1[i]         <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_90$Midrange_Check[i]  <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p1G_blnk_90$New_Port_Owner[i]  <- 'Midrange'
+   } 
+   if(p1G_blnk_90$Country[i] == 'UNITED KINGDOM') 
+   {p1G_blnk_90$Company_Code[i]    <- 07650
+    p1G_blnk_90$Cost_Center[i]     <- '0017833'
+    p1G_blnk_90$cocc_f1[i]         <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_90$Midrange_Check[i]  <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p1G_blnk_90$New_Port_Owner[i]  <- 'Midrange'
+   }
+   if(p1G_blnk_90$Country[i] == 'UNITED STATES') 
+   {p1G_blnk_90$Company_Code[i]    <- 00110
+    p1G_blnk_90$Cost_Center[i]     <- '0013303'
+    p1G_blnk_90$cocc_f1[i]         <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_90$Midrange_Check[i]  <- paste(p1G_blnk_90$Company_Code[i], '/', 
+                                            p1G_blnk_90$Cost_Center[i])
+    p1G_blnk_90$Original_Port_Owner[i]  <- 'Blank - Midrange'
+    p1G_blnk_90$New_Port_Owner[i]  <- 'Midrange'
+   }
+  }
+  i <- i+1
+}
+p1G_blnk_10   <- p1G_blnk
+ix_1 <- nrow(p1G_blnk_10)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if(p1G_blnk_10$Ports[i] > 0) 
+  {pct_10 <- (as.numeric(p1G_blnk_10$Ports[i]) / 100) * 10
+   pct_10 <- round(pct_10, digits = 0)
+   p1G_blnk_10$Ports[i]    <- pct_10
+   print(p1G_blnk_10$Ports[i])
+   #print(pct_90)
+   #print(x$Network_Check[i])
+   if(p1G_blnk_10$Country[i] == 'HONG KONG') 
+   {p1G_blnk_10$Company_Code[i]    <- 00285
+    p1G_blnk_10$Cost_Center[i]     <- '0021623'
+    p1G_blnk_10$cocc_f1[i]         <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                            p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_10$Storage_Check[i]  <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                           p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p1G_blnk_10$New_Port_Owner[i]       <- 'Storage'
+   }
+   if(p1G_blnk_10$Country[i] == 'JAPAN') 
+   {p1G_blnk_10$Company_Code[i]    <- 00285
+    p1G_blnk_10$Cost_Center[i]     <- '0018709'
+    p1G_blnk_10$cocc_f1[i]         <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                            p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_10$Storage_Check[i]  <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                           p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p1G_blnk_10$New_Port_Owner[i]       <- 'Storage'
+   }
+   if(p1G_blnk_10$Country[i] == 'SINGAPORE') 
+   {p1G_blnk_10$Company_Code[i]    <- 00285
+    p1G_blnk_10$Cost_Center[i]     <- '0016952'
+    p1G_blnk_10$cocc_f1[i]         <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                            p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_10$Storage_Check[i]  <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                           p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p1G_blnk_10$New_Port_Owner[i]       <- 'Storage'
+   } 
+   if(p1G_blnk_10$Country[i] == 'UNITED KINGDOM') 
+   {p1G_blnk_10$Company_Code[i]    <- 003279
+    p1G_blnk_10$Cost_Center[i]     <- '9921564'
+    p1G_blnk_10$cocc_f1[i]         <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                            p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_10$Storage_Check[i]  <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                           p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p1G_blnk_10$New_Port_Owner[i]       <- 'Storage'
+   }
+   if(p1G_blnk_10$Country[i] == 'UNITED STATES') 
+   {p1G_blnk_10$Company_Code[i]    <- 00110
+    p1G_blnk_10$Cost_Center[i]     <- '0005996'
+    p1G_blnk_10$cocc_f1[i]         <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                            p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$cocc_f2[i]         <- paste('(blank)', '/', 
+                                            '(blank)')
+    p1G_blnk_10$Storage_Check[i]  <- paste(p1G_blnk_10$Company_Code[i], '/', 
+                                           p1G_blnk_10$Cost_Center[i])
+    p1G_blnk_10$Original_Port_Owner[i]  <- 'Blank - Storage'
+    p1G_blnk_10$New_Port_Owner[i]       <- 'Storage'
+   }
+  }
+  i <- i+1
+}
+
+blnk_1G_100 <-rbind(p1G_blnk_90, p1G_blnk_10)
+
+# write files
+write.csv(blnk_1G_100,"blnk_1G_100.csv")
+write.csv(blnk_10G_100,"blnk_10G_100.csv")
+write.csv(p1G_noblnk,"p1G_noblnk.csv")
+write.csv(p10G_noblnk,"p10G_noblnk.csv")
+
+################# final process ###################
+# read and concatinate files
+
+#blnk_1G_100 <- read.csv("blnk_1G_100.txt", header=T, sep="\t", 
+#                            colClasses=c("character","character"))
+#blnk_10G_100 <- read.csv("blnk_10G_100.txt", header=T, sep="\t", 
+#                            colClasses=c("character","character"))
+#p1G_noblnk <- read.csv("p1G_noblnk.txt", header=T, sep="\t", 
+#colClasses=c("character","character"))
+#p10G_noblnk <- read.csv("p10G_noblnk.txt", header=T, sep="\t", 
+#                            colClasses=c("character","character"))
+
+
+#ADA_all <- rbind(p1G_noblnk, p10G_noblnk)
+
+ADA_all <- sqldf ("select * from p1G_noblnk
+                   union all
+                  select * from p10G_noblnk
+                  union all
+                  select * from blnk_1G_100
+                  union all
+                  select * from blnk_10G_100
+                  ")
+
+#ADA_all_final <- sqldf("select * from ADA_all
+#                         order by Country, Ports 
+#                       ")
+
+ADA_all_final <- sqldf("Select Country
+                              ,Company_Code
+                       ,Cost_Center
+                       ,Ports
+                       ,cocc_f1 as Concats
+                       ,cocc_f2 as CoCC
+                       ,Network_Check
+                       ,Midrange_Check
+                       ,Mainframe_Check
+                       ,Storage_Check
+                       ,ECIO_Check
+                       ,GMRT_Check
+                       ,Original_Port_Owner
+                       ,New_Port_Owner
+                       ,Port_Type
+                       ,Source_Tag
+                       from ADA_all
+                       order by Country, Ports desc
+                       ")
+
+# format values 
+ADA_all_final$Network_Check[ADA_all_final$Network_Check<1] <- "NA"
+ADA_all_final$Midrange_Check[ADA_all_final$Midrange_Check<1] <- "NA"
+ADA_all_final$Mainframe_Check[ADA_all_final$Mainframe_Check<1] <- "NA"
+ADA_all_final$Storage_Check[ADA_all_final$Storage_Check<1] <- "NA"
+ADA_all_final$ECIO_Check[ADA_all_final$ECIO_Check<1] <- "NA"
+ADA_all_final$GMRT_Check[ADA_all_final$GMRT_Check<1] <- "NA"
+
+ADA_all_final$Company_Code <- sprintf("%05d", as.numeric(ADA_all_final$Company_Code))
+ADA_all_final$Cost_Center  <- sprintf("%07d", as.numeric(ADA_all_final$Cost_Center))
+ADA_all_final$Ports        <- as.numeric(ADA_all_final$Ports) 
+
+ADA_all_final <- ADA_all_final[with(ADA_all_final, order(Country,  -Ports)),]
+
+ADA_all_10G <- sqldf("Select *
+                          from ADA_all_final
+                     where Port_Type = '10G'
+                     order by Country, Ports desc
+                     ")
+ADA_all_1G <- sqldf("Select *
+                          from ADA_all_final
+                    where Port_Type = '1G'
+                    order by Country, Ports desc
+                    ")
+
+# write files 
+write.csv(ADA_all_final,"ADA_all_final.csv")
+write.csv(ADA_all_10G,"ADA_all_10G.csv")
+write.csv(ADA_all_1G,"ADA_all_1G.csv")
+
+ADA_all_final$NBKID   <- paste('     ')
+ADA_all_final$Detail2 <- paste('     ')
+ADA_ <- sqldf("Select Company_Code
+                               ,Cost_Center as Cost_Code
+              ,Source_Tag  as Tag
+              ,NBKID
+              ,Country     as Detail1
+              ,Detail2
+              ,sum(Ports)  as Quantity
+              from ADA_all_final
+              group by Company_Code
+              ,Cost_Center
+              ,Source_Tag 
+              ,NBKID
+              ,Country    
+              ,Detail2
+              ")
+
+ADA_$Company_Code <- sprintf("%05d", as.numeric(ADA_$Company_Code))
+ADA_$Cost_Code    <- sprintf("%07d", as.numeric(ADA_$Cost_Code))
+
+ADA_s <-sqldf("select * from ADA_ 
+                 order by Detail1, Quantity desc
+              ")
+
+write.csv(ADA_s,"ADA_Data_Access_CRS_4_2014_Model.csv")
+
+writeLines(ADA_s, "ADA_outfile.txt")
+write.table(ADA_s,"ADA_2014_04_CRS_File.txt",row.names=F,col.names=T,sep="\t")
+
+
+########################## end of process ############################
+########################## end of process ############################
+########################## end of process ############################
+########################## end of process ############################
+########################## end of process ############################
+########################## end of process ############################
+########################## end of process ############################
+########################## end of process ############################
+########################## end of process ############################
+
+######
+######
+######
+######
+######
+###### reallocation of OTHER to MIDGANGE
+######
+######
+######
+######
+
+######################### 10G block ##################################
+ADA_all_10G_othr  <- read.csv("ADA_all_10G.csv", header=T, sep=",",
+                            colClasses=c("character","character"))
+
+ADA_10G_othr1    <- sqldf("select New_Port_Owner
+                                 ,sum(Ports)      as Ports
+                             from ADA_all_10G_othr
+                            group  by New_Port_Owner
+                          ")
+
+# calculate/convert PERCENTAGE
+
+ADA_10G_othr1_pct    <- sqldf("select 
+                                     sum(Ports)      as Tot_Ports
+                             from ADA_all_10G_othr
+                          ")
+
+pct_1 <- as.numeric(ADA_10G_othr1_pct / 100)
+
+ix_1 <- nrow(ADA_10G_othr1)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if(ADA_10G_othr1$Ports[i] > 0) 
+  {P <- as.numeric(ADA_10G_othr1$Ports[i]) / pct_1
+   P <- round(P, digits = 2)
+   ADA_10G_othr1$Pct[i]       <- P
+   ADA_10G_othr1$Below[i]     <- 0
+   ADA_10G_othr1$Below_Rnd[i] <- 0
+   if((ADA_10G_othr1$New_Port_Owner[i] == 'Midrange') & (ADA_10G_othr1$Pct[i] < 75))
+   {P_max <- 75
+    P_max <- round(P_max, digits = 2)
+    P_M_below_10G <- P_max - (as.numeric(ADA_10G_othr1$Pct[i]))
+    ADA_10G_othr1$Below[i] <- P_M_below_10G
+    P_below <- round(P_M_below_10G, digits = 0)
+    ADA_10G_othr1$Below_Rnd[i] <- P_below
+   }
+   if((ADA_10G_othr1$New_Port_Owner[i] == 'Storage') & (ADA_10G_othr1$Pct[i] < 5))
+   {P_max <- 5
+    P_max <- round(P_max, digits = 2)
+    P_S_below_10G <- P_max - (as.numeric(ADA_10G_othr1$Pct[i]))
+    ADA_10G_othr1$Below[i] <- P_S_below_10G
+    P_below <- round(P_below, digits = 0)
+    ADA_10G_othr1$Below_Rnd[i] <- P_below
+   }
+  }
+  i <- i+1
+} 
+###### end ######
+
+######################### 1G block ##################################
+ADA_all_1G_othr  <- read.csv("ADA_all_1G.csv", header=T, sep=",",
+                              colClasses=c("character","character"))
+
+ADA_1G_othr1    <- sqldf("select New_Port_Owner
+                                 ,sum(Ports)      as Ports
+                          from ADA_all_1G_othr
+                          group  by New_Port_Owner
+                          ")
+
+# calculate/convert PERCENTAGE
+
+ADA_1G_othr1_pct    <- sqldf("select 
+                                     sum(Ports)      as Tot_Ports
+                              from ADA_all_1G_othr
+                              ")
+
+pct_1 <- as.numeric(ADA_1G_othr1_pct / 100)
+
+ix_1 <- nrow(ADA_1G_othr1)
+print(ix_1)
+
+i <- 1
+while(i <= ix_1) {
+  #print(i)
+  if(ADA_1G_othr1$Ports[i] > 0) 
+  {P <- as.numeric(ADA_1G_othr1$Ports[i]) / pct_1
+   P <- round(P, digits = 2)
+   ADA_1G_othr1$Pct[i]       <- P
+   ADA_1G_othr1$Below[i]     <- 0
+   ADA_1G_othr1$Below_Rnd[i] <- 0
+   if((ADA_1G_othr1$New_Port_Owner[i] == 'Midrange') & (ADA_1G_othr1$Pct[i] < 75))
+   {P_max <- 75
+    P_max <- round(P_max, digits = 2)
+    P_M_below_1G <- P_max - (as.numeric(ADA_1G_othr1$Pct[i]))
+    ADA_1G_othr1$Below[i] <- P_M_below_1G
+    P_below <- round(P_below, digits = 0)
+    ADA_1G_othr1$Below_Rnd[i] <- P_below
+   }
+   if((ADA_1G_othr1$New_Port_Owner[i] == 'Storage') & (ADA_1G_othr1$Pct[i] < 5))
+   {P_max <- 5
+    P_max <- round(P_max, digits = 2)
+    P_S_below_1G <- P_max - (as.numeric(ADA_1G_othr1$Pct[i]))
+    ADA_1G_othr1$Below[i] <- P_S_below_1G
+    P_below <- round(P_below, digits = 0)
+    ADA_1G_othr1$Below_Rnd[i] <- P_below
+   }
+  }
+  i <- i+1
+}
+###### end ######
+
+# extract OTHER ports to split between MIDRANGE and STORAGE limits 
+
+# OTHER - 10 G
+ADA_10G_othr_only    <- sqldf("select * 
+                                 from ADA_all_10G_othr
+                               where New_Port_Owner      = 'Other'
+                                 and Original_Port_Owner = 'Other'
+                              ")
+ADA_10G_othr_only$Ports        <- as.numeric(ADA_10G_othr_only$Ports) # Ports MUST be NUMERIC
+ADA_10G_othr_only <- ADA_10G_othr_only[with(ADA_10G_othr_only, order(-Ports)),]
+
+pct10G_1 <- as.numeric(ADA_10G_othr1_pct / 100)
+
+P10G_M_ports_add <- P_M_below_10G * pct10G_1
+P10G_M_ports_add <- round(P10G_M_ports_add, digits = 0)
+
+P10G_S_ports_add <- P_S_below_10G * pct10G_1
+P10G_S_ports_add <- round(P10G_S_ports_add, digits = 0)
+
+
+ix_1 <- nrow(ADA_10G_othr_only)
+print(ix_1)
+i <- 1
+ports_added  <- 0
+ports_remain <- 0
+
+while(i <= ix_1) {
+ if(ADA_10G_othr_only$New_Port_Owner[i] == 'Other')
+ {  
+  if((ports_added  > 0) & (ADA_10G_othr_only$Ports[i] < ports_remain))
+  {ports_added     <- ports_added + as.numeric(ADA_10G_othr_only$Ports[i]) 
+   ports_remain    <- P10G_M_ports_add - ports_added 
+   if(ADA_10G_othr_only$Country[i] == 'HONG KONG') 
+   {ADA_10G_othr_only$Company_Code[i]    <- 03209
+    ADA_10G_othr_only$Cost_Center[i]     <- '9867616'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(ADA_10G_othr_only$Country[i] == 'JAPAN') 
+   {ADA_10G_othr_only$Company_Code[i]    <- 03209
+    ADA_10G_othr_only$Cost_Center[i]     <- '9867616'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(ADA_10G_othr_only$Country[i] == 'SINGAPORE')  
+   {ADA_10G_othr_only$Company_Code[i]    <- 03209
+    ADA_10G_othr_only$Cost_Center[i]     <- '9867616'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   } 
+   if(ADA_10G_othr_only$Country[i] == 'UNITED KINGDOM') 
+   {ADA_10G_othr_only$Company_Code[i]    <- 03279
+    ADA_10G_othr_only$Cost_Center[i]     <- '9921557'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(ADA_10G_othr_only$Country[i] == 'UNITED STATES') 
+   {ADA_10G_othr_only$Company_Code[i]    <- 00110
+    ADA_10G_othr_only$Cost_Center[i]     <- '1001143'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   }
+  }
+  if((ports_added == 0) & (ADA_10G_othr_only$Ports[i] < P10G_M_ports_add))
+  {ports_added     <- ports_added + as.numeric(ADA_10G_othr_only$Ports[i]) 
+   ports_remain    <- P10G_M_ports_add - ports_added 
+   if(ADA_10G_othr_only$Country[i] == 'HONG KONG') 
+   {ADA_10G_othr_only$Company_Code[i]    <- 03209
+    ADA_10G_othr_only$Cost_Center[i]     <- '9867616'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(ADA_10G_othr_only$Country[i] == 'JAPAN') 
+   {ADA_10G_othr_only$Company_Code[i]    <- 03209
+    ADA_10G_othr_only$Cost_Center[i]     <- '9867616'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(ADA_10G_othr_only$Country[i] == 'SINGAPORE')  
+   {ADA_10G_othr_only$Company_Code[i]    <- 03209
+    ADA_10G_othr_only$Cost_Center[i]     <- '9867616'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   } 
+   if(ADA_10G_othr_only$Country[i] == 'UNITED KINGDOM') 
+   {ADA_10G_othr_only$Company_Code[i]    <- 03279
+    ADA_10G_othr_only$Cost_Center[i]     <- '9921557'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   }
+   if(ADA_10G_othr_only$Country[i] == 'UNITED STATES') 
+   {ADA_10G_othr_only$Company_Code[i]    <- 00110
+    ADA_10G_othr_only$Cost_Center[i]     <- '1001143'
+    ADA_10G_othr_only$Midrange_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                             ADA_10G_othr_only$Cost_Center[i])
+    ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+    ADA_10G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+   }
+  }
+  #print(ports_added)
+  #print(ports_remain)
+ }
+ i <- i+1
+}
+
+# 10G - storage assignment
+
+ix_1 <- nrow(ADA_10G_othr_only)
+print(ix_1)
+i <- 1
+ports_added  <- 0
+ports_remain <- 0
+
+while(i <= ix_1) {
+  if(ADA_10G_othr_only$New_Port_Owner[i] == 'Other')
+  {  
+    if((ports_added  > 0) & (ADA_10G_othr_only$Ports[i] < ports_remain))
+    {ports_added     <- ports_added + as.numeric(ADA_10G_othr_only$Ports[i]) 
+     ports_remain    <- P10G_S_ports_add - ports_added 
+     if(ADA_10G_othr_only$Country[i] == 'HONG KONG') 
+     {ADA_10G_othr_only$Company_Code[i]    <- 00285
+      ADA_10G_othr_only$Cost_Center[i]     <- '0021623'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_10G_othr_only$Country[i] == 'JAPAN') 
+     {ADA_10G_othr_only$Company_Code[i]    <- 00285
+      ADA_10G_othr_only$Cost_Center[i]     <- '0018709'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_10G_othr_only$Country[i] == 'SINGAPORE')  
+     {ADA_10G_othr_only$Company_Code[i]    <- 00285
+      ADA_10G_othr_only$Cost_Center[i]     <- '0016952'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     } 
+     if(ADA_10G_othr_only$Country[i] == 'UNITED KINGDOM') 
+     {ADA_10G_othr_only$Company_Code[i]    <- 03279
+      ADA_10G_othr_only$Cost_Center[i]     <- '9921564'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_10G_othr_only$Country[i] == 'UNITED STATES') 
+     {ADA_10G_othr_only$Company_Code[i]    <- 00110
+      ADA_10G_othr_only$Cost_Center[i]     <- '0005996'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+    }
+    if((ports_added == 0) & (ADA_10G_othr_only$Ports[i] < P10G_S_ports_add))
+    {ports_added     <- ports_added + as.numeric(ADA_10G_othr_only$Ports[i]) 
+     ports_remain    <- P10G_S_ports_add - ports_added 
+     if(ADA_10G_othr_only$Country[i] == 'HONG KONG') 
+     {ADA_10G_othr_only$Company_Code[i]    <- 00285
+      ADA_10G_othr_only$Cost_Center[i]     <- '0021623'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_10G_othr_only$Country[i] == 'JAPAN') 
+     {ADA_10G_othr_only$Company_Code[i]    <- 00285
+      ADA_10G_othr_only$Cost_Center[i]     <- '0018709'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_10G_othr_only$Country[i] == 'SINGAPORE')  
+     {ADA_10G_othr_only$Company_Code[i]    <- 00285
+      ADA_10G_othr_only$Cost_Center[i]     <- '0016952'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     } 
+     if(ADA_10G_othr_only$Country[i] == 'UNITED KINGDOM') 
+     {ADA_10G_othr_only$Company_Code[i]    <- 03279
+      ADA_10G_othr_only$Cost_Center[i]     <- '9921564'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_10G_othr_only$Country[i] == 'UNITED STATES') 
+     {ADA_10G_othr_only$Company_Code[i]    <- 00110
+      ADA_10G_othr_only$Cost_Center[i]     <- '0005996'
+      ADA_10G_othr_only$Storage_Check[i]  <- paste(ADA_10G_othr_only$Company_Code[i], '/', 
+                                                    ADA_10G_othr_only$Cost_Center[i])
+      ADA_10G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_10G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+    }
+    #print(ports_added)
+    #print(ports_remain)
+  }
+  i <- i+1
+}
+
+
+ADA_10G_othr_only_a    <- sqldf("select * 
+                                 from   ADA_10G_othr_only
+                               where New_Port_Owner      = 'Other'
+                                 and Original_Port_Owner = 'Other'
+                              ")
+
+ADA_10G_othr_x    <- sqldf("select * 
+                                 from ADA_all_10G_othr
+                               where New_Port_Owner      != 'Other'
+                                 and Original_Port_Owner != 'Other'
+                              ")
+
+
+ADA_all_10G_updtd <- rbind(ADA_10G_othr_x, ADA_10G_othr_only)
+
+ADA_all_10G_updtd$Ports        <- as.numeric(ADA_all_10G_updtd$Ports)
+ADA_all_10G_updtd <- ADA_all_10G_updtd[with(ADA_all_10G_updtd, order(Country,  -Ports)),]
+
+#################################################################################
+
+#######
+#######  1G block - OTHER ports adjustments
+#######
+
+# extract OTHER ports to split between MIDRANGE and STORAGE limits 
+
+# OTHER - 10 G
+ADA_1G_othr_only    <- sqldf("select * 
+                                 from ADA_all_1G_othr
+                               where New_Port_Owner      = 'Other'
+                                 and Original_Port_Owner = 'Other'
+                              ")
+ADA_1G_othr_only$Ports        <- as.numeric(ADA_1G_othr_only$Ports) # Ports MUST be NUMERIC
+ADA_1G_othr_only <- ADA_1G_othr_only[with(ADA_1G_othr_only, order(-Ports)),]
+
+pct1G_1 <- as.numeric(ADA_1G_othr1_pct / 100)
+
+P1G_M_ports_add <- P_M_below_1G * pct1G_1
+P1G_M_ports_add <- round(P1G_M_ports_add, digits = 0)
+
+P1G_S_ports_add <- P_S_below_1G * pct1G_1
+P1G_S_ports_add <- round(P1G_S_ports_add, digits = 0)
+
+
+ix_1 <- nrow(ADA_1G_othr_only)
+print(ix_1)
+i <- 1
+ports_added  <- 0
+ports_remain <- 0
+
+while(i <= ix_1) {
+  if(ADA_1G_othr_only$New_Port_Owner[i] == 'Other')
+  {  
+    if((ports_added  > 0) & (ADA_1G_othr_only$Ports[i] < ports_remain))
+    {ports_added     <- ports_added + as.numeric(ADA_1G_othr_only$Ports[i]) 
+     ports_remain    <- P1G_M_ports_add - ports_added 
+     if(ADA_1G_othr_only$Country[i] == 'HONG KONG') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 03209
+      ADA_1G_othr_only$Cost_Center[i]     <- '9867616'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'JAPAN') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 03209
+      ADA_1G_othr_only$Cost_Center[i]     <- '9867616'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'SINGAPORE')  
+     {ADA_1G_othr_only$Company_Code[i]    <- 03209
+      ADA_1G_othr_only$Cost_Center[i]     <- '9867616'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     } 
+     if(ADA_1G_othr_only$Country[i] == 'UNITED KINGDOM') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 03279
+      ADA_1G_othr_only$Cost_Center[i]     <- '9921557'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'UNITED STATES') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 00110
+      ADA_1G_othr_only$Cost_Center[i]     <- '1001143'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     }
+    }
+    if((ports_added == 0) & (ADA_1G_othr_only$Ports[i] < P1G_M_ports_add))
+    {ports_added     <- ports_added + as.numeric(ADA_1G_othr_only$Ports[i]) 
+     ports_remain    <- P1G_M_ports_add - ports_added 
+     if(ADA_1G_othr_only$Country[i] == 'HONG KONG') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 03209
+      ADA_1G_othr_only$Cost_Center[i]     <- '9867616'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'JAPAN') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 03209
+      ADA_1G_othr_only$Cost_Center[i]     <- '9867616'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'SINGAPORE')  
+     {ADA_1G_othr_only$Company_Code[i]    <- 03209
+      ADA_1G_othr_only$Cost_Center[i]     <- '9867616'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     } 
+     if(ADA_1G_othr_only$Country[i] == 'UNITED KINGDOM') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 03279
+      ADA_1G_othr_only$Cost_Center[i]     <- '9921557'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'UNITED STATES') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 00110
+      ADA_1G_othr_only$Cost_Center[i]     <- '1001143'
+      ADA_1G_othr_only$Midrange_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                    ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Midrange'
+     }
+    }
+    #print(ports_added)
+    #print(ports_remain)
+  }
+  i <- i+1
+}
+
+# 1G - storage assignment
+
+ix_1 <- nrow(ADA_1G_othr_only)
+print(ix_1)
+i <- 1
+ports_added  <- 0
+ports_remain <- 0
+
+while(i <= ix_1) {
+  if(ADA_1G_othr_only$New_Port_Owner[i] == 'Other')
+  {  
+    if((ports_added  > 0) & (ADA_1G_othr_only$Ports[i] < ports_remain))
+    {ports_added     <- ports_added + as.numeric(ADA_1G_othr_only$Ports[i]) 
+     ports_remain    <- P1G_S_ports_add - ports_added 
+     if(ADA_1G_othr_only$Country[i] == 'HONG KONG') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 00285
+      ADA_1G_othr_only$Cost_Center[i]     <- '0021623'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'JAPAN') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 00285
+      ADA_1G_othr_only$Cost_Center[i]     <- '0018709'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'SINGAPORE')  
+     {ADA_1G_othr_only$Company_Code[i]    <- 00285
+      ADA_1G_othr_only$Cost_Center[i]     <- '0016952'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     } 
+     if(ADA_1G_othr_only$Country[i] == 'UNITED KINGDOM') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 03279
+      ADA_1G_othr_only$Cost_Center[i]     <- '9921564'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'UNITED STATES') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 00110
+      ADA_1G_othr_only$Cost_Center[i]     <- '0005996'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+    }
+    if((ports_added == 0) & (ADA_1G_othr_only$Ports[i] < P1G_S_ports_add))
+    {ports_added     <- ports_added + as.numeric(ADA_1G_othr_only$Ports[i]) 
+     ports_remain    <- P1G_S_ports_add - ports_added 
+     if(ADA_1G_othr_only$Country[i] == 'HONG KONG') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 00285
+      ADA_1G_othr_only$Cost_Center[i]     <- '0021623'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'JAPAN') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 00285
+      ADA_1G_othr_only$Cost_Center[i]     <- '0018709'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'SINGAPORE')  
+     {ADA_1G_othr_only$Company_Code[i]    <- 00285
+      ADA_1G_othr_only$Cost_Center[i]     <- '0016952'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     } 
+     if(ADA_1G_othr_only$Country[i] == 'UNITED KINGDOM') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 03279
+      ADA_1G_othr_only$Cost_Center[i]     <- '9921564'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+     if(ADA_1G_othr_only$Country[i] == 'UNITED STATES') 
+     {ADA_1G_othr_only$Company_Code[i]    <- 00110
+      ADA_1G_othr_only$Cost_Center[i]     <- '0005996'
+      ADA_1G_othr_only$Storage_Check[i]  <- paste(ADA_1G_othr_only$Company_Code[i], '/', 
+                                                   ADA_1G_othr_only$Cost_Center[i])
+      ADA_1G_othr_only$Original_Port_Owner[i]  <- 'Other'
+      ADA_1G_othr_only$New_Port_Owner[i]       <- 'Storage'
+     }
+    }
+    #print(ports_added)
+    #print(ports_remain)
+  }
+  i <- i+1
+}
+
+
+ADA_1G_othr_only_a    <- sqldf("select * 
+                                 from   ADA_1G_othr_only
+                                where New_Port_Owner      = 'Other'
+                                and Original_Port_Owner = 'Other'
+                                ")
+
+ADA_1G_othr_x    <- sqldf("select * 
+                                 from ADA_all_1G_othr
+                           where New_Port_Owner      != 'Other'
+                           and Original_Port_Owner != 'Other'
+                           ")
+
+
+ADA_all_1G_updtd <- rbind(ADA_1G_othr_x, ADA_1G_othr_only)
+
+ADA_all_1G_updtd$Ports        <- as.numeric(ADA_all_1G_updtd$Ports)
+ADA_all_1G_updtd <- ADA_all_1G_updtd[with(ADA_all_1G_updtd, order(Country,  -Ports)),]
+
+ADA_all_updtd <- rbind(ADA_all_1G_updtd, ADA_all_10G_updtd)
+ADA_all_updtd <- ADA_all_updtd[with(ADA_all_updtd, order(Country,  -Ports)),]
+
+# send/create CSV files ############################################ 
+
+write.csv(ADA_all_1G_updtd,"ADA_all_updtd_1G.csv")
+write.csv(ADA_all_10G_updtd,"ADA_all_updtd_10G.csv")
+write.csv(ADA_all_updtd,"ADA_all_updtd.csv")
+
+
+################################################################
+################################################################
+################################################################
+################################################################
+########### end of OTHER reallocation             ##############
+########### end of OTHER reallocation             ##############
+########### end of OTHER reallocation             ##############
+################################################################
+################################################################
+################################################################
+################################################################
+################################################################
